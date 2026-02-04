@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "Identify NAND flash chips on NVMe SSDs via vendor-specific admin commands"
 license = "MIT"
+repository = "https://github.com/pseudolabel/ssd-flash-id"
 keywords = ["nvme", "ssd", "nand", "flash", "hardware"]
 categories = ["command-line-utilities", "hardware-support"]
 
