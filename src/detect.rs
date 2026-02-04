@@ -71,12 +71,18 @@ const RTL_FW_PREFIXES: &[(&str, &str, RtlVariant)] = &[
 ];
 
 const SMI_VID: u16 = 0x2646;
+const RTL_VID: u16 = 0x10EC;
+const PHISON_VID: u16 = 0x1987;
+const MAXIO_VID: u16 = 0x1E4B;
 
-fn detect_realtek(fw: &str) -> Option<ControllerType> {
+fn detect_realtek(fw: &str, vid: u16, ssvid: u16) -> Option<ControllerType> {
     for &(prefix, name, variant) in RTL_FW_PREFIXES {
         if fw.starts_with(prefix) {
             return Some(ControllerType::Realtek(name.to_string(), variant));
         }
+    }
+    if vid == RTL_VID || ssvid == RTL_VID {
+        return Some(ControllerType::Realtek("Realtek (by VID)".into(), RtlVariant::V1));
     }
     None
 }
@@ -170,7 +176,8 @@ fn probe_innogrit(dev: &NvmeDevice) -> Option<ControllerType> {
 }
 
 pub fn detect(dev: &NvmeDevice, info: &crate::nvme::ControllerInfo) -> Option<ControllerType> {
-    if let Some(ct) = detect_realtek(&info.firmware) {
+    // Firmware/model/VID-based detection (no vendor commands)
+    if let Some(ct) = detect_realtek(&info.firmware, info.vid, info.ssvid) {
         return Some(ct);
     }
     if let Some(ct) = detect_smi(&info.firmware, &info.model, info.vid, info.ssvid) {
@@ -179,6 +186,8 @@ pub fn detect(dev: &NvmeDevice, info: &crate::nvme::ControllerInfo) -> Option<Co
     if let Some(ct) = detect_tenafe(&info.model) {
         return Some(ct);
     }
+
+    // Probe-based detection (sends vendor commands)
     if let Some(ct) = probe_phison(dev) {
         return Some(ct);
     }
@@ -191,5 +200,14 @@ pub fn detect(dev: &NvmeDevice, info: &crate::nvme::ControllerInfo) -> Option<Co
     if let Some(ct) = probe_innogrit(dev) {
         return Some(ct);
     }
+
+    // VID fallback for controllers whose probes might not respond on all variants
+    if info.vid == PHISON_VID || info.ssvid == PHISON_VID {
+        return Some(ControllerType::Phison("Phison (by VID)".into()));
+    }
+    if info.vid == MAXIO_VID || info.ssvid == MAXIO_VID {
+        return Some(ControllerType::Maxio("Maxio (by VID)".into()));
+    }
+
     None
 }

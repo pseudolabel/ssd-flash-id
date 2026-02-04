@@ -225,6 +225,7 @@ fn errno_to_str(errno: i32) -> &'static str {
         libc::ENOMEM => "out of memory",
         libc::EPERM => "operation not permitted",
         libc::ENODEV => "no such device",
+        libc::EAGAIN => "device busy (try again)",
         _ => "unknown error",
     }
 }

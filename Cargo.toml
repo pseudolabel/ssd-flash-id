@@ -1,6 +1,6 @@
 [package]
 name = "ssd-flash-id"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "Identify NAND flash chips on NVMe and SATA SSDs via vendor-specific commands"
 license = "MIT"
