@@ -108,10 +108,9 @@ fn probe_phison(dev: &NvmeDevice) -> Option<ControllerType> {
     if dev
         .admin_read(0xD2, 0, 0, 0, 0, 0, 0, 0, &mut buf)
         .is_ok()
+        && buf.windows(8).any(|w| w == b"PhIsOnNo")
     {
-        if buf.windows(8).any(|w| w == b"PhIsOnNo") {
-            return Some(ControllerType::Phison("Phison".to_string()));
-        }
+        return Some(ControllerType::Phison("Phison".to_string()));
     }
     None
 }
@@ -122,12 +121,10 @@ fn probe_maxio(dev: &NvmeDevice) -> Option<ControllerType> {
         if dev
             .admin_read(opcode, 0, 0, 0, 0, 0, 0, 0, &mut buf)
             .is_ok()
+            && let Ok(s) = std::str::from_utf8(&buf)
+            && s.contains(",MAP1")
         {
-            if let Ok(s) = std::str::from_utf8(&buf) {
-                if s.contains(",MAP1") {
-                    return Some(ControllerType::Maxio("Maxio".to_string()));
-                }
-            }
+            return Some(ControllerType::Maxio("Maxio".to_string()));
         }
     }
     None
@@ -154,21 +151,20 @@ fn probe_innogrit(dev: &NvmeDevice) -> Option<ControllerType> {
     if dev
         .admin_read(0xF2, 0, 0, 0, 0, 0, 0x54495247, 0x4F4E4E49, &mut buf)
         .is_ok()
+        && buf.iter().any(|&b| b != 0)
     {
-        if buf.iter().any(|&b| b != 0) {
-            let did_offset = 0x62E;
-            let name = if did_offset + 2 <= buf.len() {
-                let did = u16::from_le_bytes([buf[did_offset], buf[did_offset + 1]]);
-                if did != 0 {
-                    format!("Innogrit (DID 0x{did:04X})")
-                } else {
-                    "Innogrit".to_string()
-                }
+        let did_offset = 0x62E;
+        let name = if did_offset + 2 <= buf.len() {
+            let did = u16::from_le_bytes([buf[did_offset], buf[did_offset + 1]]);
+            if did != 0 {
+                format!("Innogrit (DID 0x{did:04X})")
             } else {
                 "Innogrit".to_string()
-            };
-            return Some(ControllerType::Innogrit(name));
-        }
+            }
+        } else {
+            "Innogrit".to_string()
+        };
+        return Some(ControllerType::Innogrit(name));
     }
     None
 }

@@ -54,6 +54,7 @@ pub struct NvmeDevice {
     fd: i32,
 }
 
+#[allow(clippy::too_many_arguments)]
 impl NvmeDevice {
     pub fn open(path: &str) -> Result<Self, String> {
         let c_path =

@@ -1,12 +1,12 @@
 # ssd-flash-id
 
 Linux open-source equivalent of [VLO's SSD Flash ID tools](http://vlo.name:3000/ssdtool/).
-Identifies NAND flash chips on NVMe SSDs via vendor-specific admin commands,
+Identifies NAND flash chips on NVMe and SATA SSDs via vendor-specific commands,
 reporting flash type (QLC/TLC/MLC/SLC), manufacturer, and technology node
 for each NAND bank on the drive.
 
 ```
-$ sudo ssd-flash-id
+$ sudo ssd-flash-id /dev/nvme0
 Model      : KINGSTON SNV2S1000G
 Firmware   : SBM02106
 Controller : SM2267XT (Silicon Motion)
@@ -32,6 +32,8 @@ sudo ./target/release/ssd-flash-id
 
 ## Supported Controllers
 
+### NVMe
+
 | Family | Controllers |
 |--------|------------|
 | Silicon Motion | SM2260, SM2262, SM2263, SM2264, SM2265, SM2267, SM2268, SM2269, SM2270, SM2508, SM8366 |
@@ -41,6 +43,16 @@ sudo ./target/release/ssd-flash-id
 | Marvell | 88NV1160, 88NV1140 |
 | Innogrit | IG5208, IG5216, IG5220, IG5236, IG5266 |
 | Tenafe | TC2200, TC2201 |
+
+### SATA
+
+| Family | Controllers |
+|--------|------------|
+| JMicron/Maxio | MAS1102, MAS0902, MK8115, JMF605-JMF670 |
+| Silicon Motion | SM2246, SM2256, SM2258, SM2259 |
+| SandForce | SF-2281, SF-2282 |
+| Yeestor/SiliconGo | YS9082, YS9085 |
+| Realtek | RTS5732, RTS5733, RTS5735 |
 
 ## NAND Identification
 
@@ -54,23 +66,25 @@ YMTC, SanDisk, and others. Reports technology node (e.g. 176L, 232L, BiCS5,
 ssd-flash-id [options] [device]
 
 options:
-    -l, --list          list NVMe devices
-    -c, --controller    force controller type: smi, rtl, phison, maxio, marvell, innogrit, tenafe
-    --rtl-variant       force Realtek variant: v1 or v2
+    -l, --list          list NVMe and SATA devices
+    -c, --controller    force controller type:
+                        nvme: smi, rtl, phison, maxio, marvell, innogrit, tenafe
+                        sata: jm, smi-sata, yeestor, sandforce, rtl-sata
+    --rtl-variant       force Realtek NVMe variant: v1 or v2
     --raw               dump raw flash ID bytes without decoding
 ```
 
-Auto-detects the controller type. If auto-detection fails (or is wrong), use
-`-c` to force it.
+Auto-detects the controller type. NVMe devices are found automatically; SATA
+devices require an explicit path (e.g. `ssd-flash-id /dev/sda`).
 
 ## Requirements
 
-- Linux (uses NVMe ioctl directly, no external dependencies)
+- Linux (uses NVMe ioctl and ATA PASS-THROUGH via SG_IO directly, no external dependencies)
 - Root privileges (`sudo`)
 
 ## Credits
 
-Based on the vendor-specific NVMe command research from [VLO's SSD tools](http://vlo.name:3000/ssdtool/) (Windows).
+Based on the vendor-specific command research from [VLO's SSD tools](http://vlo.name:3000/ssdtool/) (Windows).
 
 ## License
 

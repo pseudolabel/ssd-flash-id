@@ -1,3 +1,4 @@
+mod ata;
 mod controllers;
 mod detect;
 mod nand_db;
@@ -5,6 +6,7 @@ mod nvme;
 
 use std::os::unix::fs::FileTypeExt;
 
+use crate::ata::{parse_ata_identify, AtaDevice};
 use crate::controllers::FlashIdResult;
 use crate::detect::{ControllerType, RtlVariant};
 use crate::nand_db::{describe_flash, format_flash_id_hex};
@@ -78,18 +80,19 @@ fn parse_args() -> Args {
 fn print_usage() {
     println!(
         "\
-ssd-flash-id - Identify NAND flash chips on NVMe SSDs
+ssd-flash-id - Identify NAND flash chips on NVMe and SATA SSDs
 
 usage: ssd-flash-id [options] [device]
 
 arguments:
-    device              NVMe device path (default: auto-detect)
+    device              device path (e.g. /dev/nvme0, /dev/sda)
 
 options:
     -h, --help          show this help
-    -l, --list          list NVMe devices
+    -l, --list          list NVMe and SATA devices
     -c, --controller    force controller type:
-                        smi, rtl, phison, maxio, marvell, innogrit, tenafe
+                        nvme: smi, rtl, phison, maxio, marvell, innogrit, tenafe
+                        sata: jm, smi-sata, yeestor, sandforce, rtl-sata
     --rtl-variant       force Realtek variant: v1 (RTS5762/63), v2 (RTS5765/66/72)
     --raw               dump raw flash ID bytes as hex"
     );
@@ -125,23 +128,73 @@ fn find_nvme_devices() -> Vec<String> {
             continue;
         }
         let path = format!("/dev/{}", name);
-        if let Ok(meta) = std::fs::metadata(&path) {
-            if meta.file_type().is_char_device() {
-                devices.push(path);
-            }
+        if let Ok(meta) = std::fs::metadata(&path)
+            && meta.file_type().is_char_device()
+        {
+            devices.push(path);
         }
     }
     devices.sort();
     devices
 }
 
+fn find_sata_devices() -> Vec<String> {
+    let mut devices = Vec::new();
+    let dir = match std::fs::read_dir("/dev") {
+        Ok(d) => d,
+        Err(_) => return devices,
+    };
+    for entry in dir.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !name.starts_with("sd") {
+            continue;
+        }
+        let suffix = &name[2..];
+        // Must be letters only (sda, sdb, ...) not partitions (sda1, sda2)
+        if suffix.is_empty() || !suffix.chars().all(|c| c.is_ascii_lowercase()) {
+            continue;
+        }
+        let path = format!("/dev/{}", name);
+        if let Ok(meta) = std::fs::metadata(&path)
+            && meta.file_type().is_block_device()
+        {
+            devices.push(path);
+        }
+    }
+    devices.sort();
+    devices
+}
+
+fn is_sata_path(path: &str) -> bool {
+    let name = std::path::Path::new(path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+    if name.starts_with("sd") {
+        return true;
+    }
+    if name.starts_with("nvme") {
+        return false;
+    }
+    // Unknown name pattern: check if block device (SATA) vs char device (NVMe)
+    if let Ok(meta) = std::fs::metadata(path) {
+        meta.file_type().is_block_device()
+    } else {
+        false
+    }
+}
+
 fn list_devices() {
-    let devices = find_nvme_devices();
-    if devices.is_empty() {
-        println!("no NVMe devices found");
+    let nvme_devices = find_nvme_devices();
+    let sata_devices = find_sata_devices();
+
+    if nvme_devices.is_empty() && sata_devices.is_empty() {
+        println!("no devices found");
         return;
     }
-    for dev_path in &devices {
+
+    for dev_path in &nvme_devices {
         match NvmeDevice::open(dev_path) {
             Ok(dev) => match dev.identify_controller() {
                 Ok(id_data) => {
@@ -156,9 +209,25 @@ fn list_devices() {
             Err(e) => println!("{}  (open failed: {})", dev_path, e),
         }
     }
+
+    for dev_path in &sata_devices {
+        match AtaDevice::open(dev_path) {
+            Ok(dev) => match dev.ata_identify() {
+                Ok(id_data) => {
+                    let info = parse_ata_identify(&id_data);
+                    println!(
+                        "{}  {}  sn:{}  fw:{}",
+                        dev_path, info.model, info.serial, info.firmware
+                    );
+                }
+                Err(e) => println!("{}  (identify failed: {})", dev_path, e),
+            },
+            Err(e) => println!("{}  (open failed: {})", dev_path, e),
+        }
+    }
 }
 
-fn resolve_controller_type(name: &str) -> Option<ControllerType> {
+fn resolve_nvme_controller_type(name: &str) -> Option<ControllerType> {
     match name {
         "smi" => Some(ControllerType::Smi("SMI (forced)".into())),
         "rtl" => Some(ControllerType::Realtek(
@@ -186,7 +255,7 @@ fn controller_family_display(ct: &ControllerType) -> &str {
     }
 }
 
-fn read_flash_id(dev: &NvmeDevice, ct: &ControllerType) -> Result<FlashIdResult, String> {
+fn nvme_read_flash_id(dev: &NvmeDevice, ct: &ControllerType) -> Result<FlashIdResult, String> {
     match ct {
         ControllerType::Smi(_) => controllers::smi::read_flash_id(dev),
         ControllerType::Realtek(_, variant) => controllers::rtl::read_flash_id(dev, variant),
@@ -198,16 +267,7 @@ fn read_flash_id(dev: &NvmeDevice, ct: &ControllerType) -> Result<FlashIdResult,
     }
 }
 
-fn print_result(result: &FlashIdResult, ct: &ControllerType, model: &str, firmware: &str, raw: bool) {
-    println!("Model      : {}", model);
-    println!("Firmware   : {}", firmware);
-    println!(
-        "Controller : {} ({})",
-        result.controller_name,
-        controller_family_display(ct)
-    );
-    println!();
-
+fn print_banks(result: &FlashIdResult, raw: bool) {
     if result.banks.is_empty() {
         println!("no flash banks detected");
         return;
@@ -224,42 +284,8 @@ fn print_result(result: &FlashIdResult, ct: &ControllerType, model: &str, firmwa
     }
 }
 
-fn main() {
-    let args = parse_args();
-
-    if args.help {
-        print_usage();
-        return;
-    }
-
-    check_root();
-
-    if args.list {
-        list_devices();
-        return;
-    }
-
-    let dev_path = match args.device {
-        Some(p) => p,
-        None => {
-            let devices = find_nvme_devices();
-            if devices.is_empty() {
-                eprintln!("error: no NVMe devices found");
-                std::process::exit(1);
-            }
-            if devices.len() > 1 {
-                eprintln!("multiple NVMe devices found:");
-                for d in &devices {
-                    eprintln!("  {}", d);
-                }
-                eprintln!("\nspecify a device, e.g.: ssd-flash-id {}", devices[0]);
-                std::process::exit(1);
-            }
-            devices.into_iter().next().unwrap()
-        }
-    };
-
-    let dev = match NvmeDevice::open(&dev_path) {
+fn run_nvme(dev_path: &str, args: &Args) {
+    let dev = match NvmeDevice::open(dev_path) {
         Ok(d) => d,
         Err(e) => {
             eprintln!("error: {}", e);
@@ -277,11 +303,11 @@ fn main() {
     let info = parse_identify(&id_data);
 
     let mut ct = if let Some(ref forced) = args.controller {
-        match resolve_controller_type(forced) {
+        match resolve_nvme_controller_type(forced) {
             Some(ct) => ct,
             None => {
                 eprintln!(
-                    "error: unknown controller type '{}'\n\nvalid types: smi, rtl, phison, maxio, marvell, innogrit, tenafe",
+                    "error: unknown controller type '{}'\n\nvalid nvme types: smi, rtl, phison, maxio, marvell, innogrit, tenafe",
                     forced
                 );
                 std::process::exit(1);
@@ -314,9 +340,17 @@ fn main() {
         }
     }
 
-    match read_flash_id(&dev, &ct) {
+    match nvme_read_flash_id(&dev, &ct) {
         Ok(result) => {
-            print_result(&result, &ct, &info.model, &info.firmware, args.raw);
+            println!("Model      : {}", info.model);
+            println!("Firmware   : {}", info.firmware);
+            println!(
+                "Controller : {} ({})",
+                result.controller_name,
+                controller_family_display(&ct)
+            );
+            println!();
+            print_banks(&result, args.raw);
         }
         Err(e) => {
             eprintln!(
@@ -335,5 +369,165 @@ fn main() {
             eprintln!("  valid types: smi, rtl, phison, maxio, marvell, innogrit, tenafe");
             std::process::exit(1);
         }
+    }
+}
+
+fn run_sata(dev_path: &str, args: &Args) {
+    let forced = args.controller.as_deref();
+    const SATA_TYPES: &[&str] = &["jm", "smi-sata", "yeestor", "sandforce", "rtl-sata"];
+    if let Some(f) = forced
+        && !SATA_TYPES.contains(&f)
+    {
+        eprintln!(
+            "error: controller type '{}' is not supported for SATA devices\n\nsupported sata types: {}",
+            f,
+            SATA_TYPES.join(", ")
+        );
+        std::process::exit(1);
+    }
+
+    let dev = match AtaDevice::open(dev_path) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    let id_data = match dev.ata_identify() {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("error: failed to identify device: {}", e);
+            std::process::exit(1);
+        }
+    };
+    let info = parse_ata_identify(&id_data);
+
+    // Check ATA IDENTIFY data for embedded flash IDs (some controllers store them in vendor words)
+    let identify_fid = controllers::ata_identify_fid::extract_from_identify(&id_data);
+
+    // Try controllers in order: firmware detection first, then probing
+    let result = if forced == Some("jm") {
+        try_jm_sata(&dev)
+    } else if forced == Some("smi-sata") {
+        try_smi_sata(&dev)
+    } else if forced == Some("yeestor") {
+        try_yeestor(&dev)
+    } else if forced == Some("sandforce") {
+        try_sandforce(&dev)
+    } else if forced == Some("rtl-sata") {
+        try_rtl_sata(&dev)
+    } else {
+        // Auto-detect: check firmware strings first
+        if controllers::smi_sata::detect_from_firmware(&info.firmware).is_some() {
+            try_smi_sata(&dev)
+        } else if controllers::rtl_sata::detect_from_firmware(&info.firmware).is_some() {
+            try_rtl_sata(&dev)
+        } else {
+            // Try each controller family in order of least-invasive
+            try_yeestor(&dev)
+                .or_else(|_| try_smi_sata(&dev))
+                .or_else(|_| try_sandforce(&dev))
+                .or_else(|_| try_jm_sata(&dev))
+                .or_else(|_| try_rtl_sata(&dev))
+                .or_else(|_| {
+                    // Last resort: check if flash ID was embedded in ATA IDENTIFY data
+                    identify_fid
+                        .clone()
+                        .map(|r| (r, "SATA"))
+                        .ok_or_else(|| "no vendor commands succeeded and no flash ID in IDENTIFY data".to_string())
+                })
+        }
+    };
+
+    let (result, family) = match result {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            eprintln!("\nmodel: {}", info.model);
+            eprintln!("firmware: {}", info.firmware);
+            eprintln!("\nthis SATA device may not have a supported controller.");
+            eprintln!(
+                "supported sata types: {}",
+                SATA_TYPES.join(", ")
+            );
+            std::process::exit(1);
+        }
+    };
+
+    println!("Model      : {}", info.model);
+    println!("Firmware   : {}", info.firmware);
+    println!("Controller : {} ({})", result.controller_name, family);
+    println!();
+    print_banks(&result, args.raw);
+}
+
+fn try_jm_sata(dev: &AtaDevice) -> Result<(FlashIdResult, &'static str), String> {
+    let fw_response = controllers::jm_sata::read_firmware_id(dev)?;
+    let result = controllers::jm_sata::read_flash_id(dev, &fw_response)?;
+    Ok((result, "JMicron/Maxio"))
+}
+
+fn try_smi_sata(dev: &AtaDevice) -> Result<(FlashIdResult, &'static str), String> {
+    let result = controllers::smi_sata::read_flash_id(dev)?;
+    Ok((result, "Silicon Motion"))
+}
+
+fn try_yeestor(dev: &AtaDevice) -> Result<(FlashIdResult, &'static str), String> {
+    let result = controllers::yeestor::read_flash_id(dev)?;
+    Ok((result, "Yeestor/SiliconGo"))
+}
+
+fn try_sandforce(dev: &AtaDevice) -> Result<(FlashIdResult, &'static str), String> {
+    let result = controllers::sandforce::read_flash_id(dev)?;
+    Ok((result, "SandForce"))
+}
+
+fn try_rtl_sata(dev: &AtaDevice) -> Result<(FlashIdResult, &'static str), String> {
+    let result = controllers::rtl_sata::read_flash_id(dev)?;
+    Ok((result, "Realtek"))
+}
+
+fn main() {
+    let args = parse_args();
+
+    if args.help {
+        print_usage();
+        return;
+    }
+
+    check_root();
+
+    if args.list {
+        list_devices();
+        return;
+    }
+
+    let dev_path = match &args.device {
+        Some(p) => p.clone(),
+        None => {
+            // Auto-detect: NVMe only. SATA requires explicit device path.
+            let devices = find_nvme_devices();
+            if devices.is_empty() {
+                eprintln!("error: no NVMe devices found");
+                eprintln!("\nfor SATA devices, specify the path: ssd-flash-id /dev/sdX");
+                std::process::exit(1);
+            }
+            if devices.len() > 1 {
+                eprintln!("multiple NVMe devices found:");
+                for d in &devices {
+                    eprintln!("  {}", d);
+                }
+                eprintln!("\nspecify a device, e.g.: ssd-flash-id {}", devices[0]);
+                std::process::exit(1);
+            }
+            devices.into_iter().next().unwrap()
+        }
+    };
+
+    if is_sata_path(&dev_path) {
+        run_sata(&dev_path, &args);
+    } else {
+        run_nvme(&dev_path, &args);
     }
 }

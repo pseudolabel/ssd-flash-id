@@ -17,7 +17,7 @@ fn phison_crc(buf: &[u8; 64]) -> u32 {
             crc &= 0xFFFF;
         }
     }
-    let swapped = ((crc >> 8) | ((crc & 0xFF) << 8)) & 0xFFFF;
+    let swapped = (crc >> 8) | ((crc & 0xFF) << 8);
     (swapped as u32) << 16
 }
 
@@ -81,17 +81,16 @@ pub fn read_flash_id(dev: &NvmeDevice) -> Result<FlashIdResult, String> {
 
 fn extract_controller_name(sysinfo: &[u8; 4096]) -> String {
     for window in sysinfo.windows(6) {
-        if window[0] == b'P' && window[1] == b'S' && window[2] == b'5' && window[3] == b'0' {
-            if let Some(end) = sysinfo[window.as_ptr() as usize - sysinfo.as_ptr() as usize..]
+        if window[0] == b'P' && window[1] == b'S' && window[2] == b'5' && window[3] == b'0'
+            && let Some(end) = sysinfo[window.as_ptr() as usize - sysinfo.as_ptr() as usize..]
                 .iter()
                 .position(|&b| b == 0 || b == b' ' || !b.is_ascii_graphic())
-            {
-                let start = window.as_ptr() as usize - sysinfo.as_ptr() as usize;
-                let name = &sysinfo[start..start + end.min(16)];
-                let s: String = name.iter().map(|&b| b as char).collect();
-                if !s.is_empty() {
-                    return s;
-                }
+        {
+            let start = window.as_ptr() as usize - sysinfo.as_ptr() as usize;
+            let name = &sysinfo[start..start + end.min(16)];
+            let s: String = name.iter().map(|&b| b as char).collect();
+            if !s.is_empty() {
+                return s;
             }
         }
     }
