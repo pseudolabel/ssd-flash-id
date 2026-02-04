@@ -1,7 +1,8 @@
 # ssd-flash-id
 
-Identify NAND flash chips on NVMe SSDs via vendor-specific admin commands.
-Tells you the flash type (QLC/TLC/MLC/SLC), manufacturer, and technology node
+Linux open-source equivalent of [VLO's SSD Flash ID tools](http://vlo.name:3000/ssdtool/).
+Identifies NAND flash chips on NVMe SSDs via vendor-specific admin commands,
+reporting flash type (QLC/TLC/MLC/SLC), manufacturer, and technology node
 for each NAND bank on the drive.
 
 ```
@@ -66,6 +67,10 @@ Auto-detects the controller type. If auto-detection fails (or is wrong), use
 
 - Linux (uses NVMe ioctl directly, no external dependencies)
 - Root privileges (`sudo`)
+
+## Credits
+
+Based on the vendor-specific NVMe command research from [VLO's SSD tools](http://vlo.name:3000/ssdtool/) (Windows).
 
 ## License
 
