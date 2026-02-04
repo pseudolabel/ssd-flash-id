@@ -1,0 +1,15 @@
+[package]
+name = "ssd-flash-id"
+version = "0.1.0"
+edition = "2024"
+description = "Identify NAND flash chips on NVMe SSDs via vendor-specific admin commands"
+license = "MIT"
+keywords = ["nvme", "ssd", "nand", "flash", "hardware"]
+categories = ["command-line-utilities", "hardware-support"]
+
+[dependencies]
+libc = "0.2"
+
+[profile.release]
+strip = true
+lto = true
