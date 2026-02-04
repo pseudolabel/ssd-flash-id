@@ -13,10 +13,11 @@ fn unlock(dev: &NvmeDevice) -> Result<(), String> {
 }
 
 pub fn read_flash_id(dev: &NvmeDevice, variant: &RtlVariant) -> Result<FlashIdResult, String> {
-    // Try the requested variant first, fall back to the other if no banks found
+    // Always try V1 first — V1 commands work on V2 hardware, but V2 commands
+    // can hang some V2 controllers (e.g. RTS5772DL with non-standard firmware).
     let variants: &[(RtlVariant, &str)] = match variant {
-        RtlVariant::V1 => &[(RtlVariant::V1, "RTS5762/63"), (RtlVariant::V2, "RTS5765/66/72")],
-        RtlVariant::V2 => &[(RtlVariant::V2, "RTS5765/66/72"), (RtlVariant::V1, "RTS5762/63")],
+        RtlVariant::V1 => &[(RtlVariant::V1, "RTS5762/63")],
+        RtlVariant::V2 => &[(RtlVariant::V1, "RTS5762/63"), (RtlVariant::V2, "RTS5765/66/72")],
     };
 
     for &(v, ctrl_name) in variants {
