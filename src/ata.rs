@@ -8,6 +8,7 @@ const ATA_PT16_OPCODE: u8 = 0x85;
 const ATA_PT16_CDB_LEN: u8 = 16;
 const SENSE_BUF_LEN: u8 = 32;
 const TIMEOUT_MS: u32 = 10_000;
+const SG_INFO_OK_MASK: u32 = 0x1;
 
 const PROTO_NON_DATA: u8 = 3;
 const PROTO_PIO_DATA_IN: u8 = 4;
@@ -101,6 +102,65 @@ impl AtaDevice {
         let mut buf = [0u8; 512];
         self.ata_read(0xEC, 0, 1, 0, 0, 0, 0xE0, &mut buf)?;
         Ok(buf)
+    }
+
+    #[allow(dead_code)]
+    pub fn inquiry_scsi(&self) -> Result<String, String> {
+        let mut buf = [0u8; 36];
+        self.read_scsi(&[0x12, 0x00, 0x00, 0x00, 0x24, 0x00], &mut buf)?;
+        let trim = |raw: &[u8]| {
+            raw.iter()
+                .map(|&b| if b.is_ascii_graphic() || b == b' ' { b as char } else { ' ' })
+                .collect::<String>()
+                .trim()
+                .to_string()
+        };
+
+        let vendor = trim(&buf[8..16]);
+        let product = trim(&buf[16..32]);
+        let revision = trim(&buf[32..36]);
+        Ok(format!("{vendor} {product} {revision}").trim().to_string())
+    }
+
+    pub fn read_scsi(&self, cdb: &[u8], buf: &mut [u8]) -> Result<(), String> {
+        let mut sense = [0u8; SENSE_BUF_LEN as usize];
+        let mut hdr = SgIoHdr::zeroed();
+        hdr.interface_id = b'S' as i32;
+        hdr.dxfer_direction = SG_DXFER_FROM_DEV;
+        hdr.cmd_len = cdb.len() as u8;
+        hdr.mx_sb_len = SENSE_BUF_LEN;
+        hdr.dxfer_len = buf.len() as u32;
+        hdr.dxferp = buf.as_mut_ptr();
+        hdr.cmdp = cdb.as_ptr();
+        hdr.sbp = sense.as_mut_ptr();
+        hdr.timeout = TIMEOUT_MS;
+
+        let ret = unsafe { libc::ioctl(self.fd, SG_IO, &mut hdr as *mut SgIoHdr) };
+        if ret < 0 {
+            let errno = unsafe { *libc::__errno_location() };
+            return Err(format!(
+                "sg_io ioctl failed: {} (errno {}, cdb 0x{:02x})",
+                errno_to_str(errno),
+                errno,
+                cdb.first().copied().unwrap_or(0)
+            ));
+        }
+
+        if hdr.info & SG_INFO_OK_MASK != 0
+            || hdr.status != 0
+            || hdr.host_status != 0
+            || hdr.driver_status != 0
+        {
+            return Err(format!(
+                "sg_io command failed: status=0x{:02x}, host_status=0x{:04x}, driver_status=0x{:04x}, cdb=0x{:02x}",
+                hdr.status,
+                hdr.host_status,
+                hdr.driver_status,
+                cdb.first().copied().unwrap_or(0)
+            ));
+        }
+
+        Ok(())
     }
 
     pub fn ata_read(

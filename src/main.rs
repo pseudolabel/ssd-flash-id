@@ -93,6 +93,7 @@ options:
     -c, --controller    force controller type:
                         nvme: smi, rtl, phison, maxio, marvell, innogrit, tenafe
                         sata: jm, smi-sata, yeestor, sandforce, rtl-sata
+                        usb:  cbm2199, fc3379, fc2279, au8910x, au6989
     --rtl-variant       force Realtek variant: v1 (RTS5762/63), v2 (RTS5765/66/72)
     --raw               dump raw flash ID bytes as hex"
     );
@@ -375,13 +376,15 @@ fn run_nvme(dev_path: &str, args: &Args) {
 fn run_sata(dev_path: &str, args: &Args) {
     let forced = args.controller.as_deref();
     const SATA_TYPES: &[&str] = &["jm", "smi-sata", "yeestor", "sandforce", "rtl-sata"];
+    const USB_TYPES: &[&str] = &["cbm2199", "fc3379", "fc2279", "au8910x", "au6989"];
     if let Some(f) = forced
         && !SATA_TYPES.contains(&f)
+        && !USB_TYPES.contains(&f)
     {
         eprintln!(
             "error: controller type '{}' is not supported for SATA devices\n\nsupported sata types: {}",
             f,
-            SATA_TYPES.join(", ")
+            [SATA_TYPES, USB_TYPES].concat().join(", ")
         );
         std::process::exit(1);
     }
@@ -417,6 +420,16 @@ fn run_sata(dev_path: &str, args: &Args) {
         try_sandforce(&dev)
     } else if forced == Some("rtl-sata") {
         try_rtl_sata(&dev)
+    } else if forced == Some("cbm2199") {
+        try_cbm2199(&dev)
+    } else if forced == Some("fc3379") {
+        try_fc3379(&dev)
+    } else if forced == Some("fc2279") {
+        try_fc2279(&dev)
+    } else if forced == Some("au8910x") {
+        try_au8910x(&dev)
+    } else if forced == Some("au6989") {
+        try_au6989(&dev)
     } else {
         // Auto-detect: check firmware strings first
         if controllers::smi_sata::detect_from_firmware(&info.firmware).is_some() {
@@ -430,6 +443,11 @@ fn run_sata(dev_path: &str, args: &Args) {
                 .or_else(|_| try_sandforce(&dev))
                 .or_else(|_| try_jm_sata(&dev))
                 .or_else(|_| try_rtl_sata(&dev))
+                .or_else(|_| try_cbm2199(&dev))
+                .or_else(|_| try_fc3379(&dev))
+                .or_else(|_| try_fc2279(&dev))
+                .or_else(|_| try_au8910x(&dev))
+                .or_else(|_| try_au6989(&dev))
                 .or_else(|_| {
                     // Last resort: check if flash ID was embedded in ATA IDENTIFY data
                     identify_fid
@@ -448,8 +466,8 @@ fn run_sata(dev_path: &str, args: &Args) {
             eprintln!("firmware: {}", info.firmware);
             eprintln!("\nthis SATA device may not have a supported controller.");
             eprintln!(
-                "supported sata types: {}",
-                SATA_TYPES.join(", ")
+                "supported sata/block types: {}",
+                [SATA_TYPES, USB_TYPES].concat().join(", ")
             );
             std::process::exit(1);
         }
@@ -486,6 +504,31 @@ fn try_sandforce(dev: &AtaDevice) -> Result<(FlashIdResult, &'static str), Strin
 fn try_rtl_sata(dev: &AtaDevice) -> Result<(FlashIdResult, &'static str), String> {
     let result = controllers::rtl_sata::read_flash_id(dev)?;
     Ok((result, "Realtek"))
+}
+
+fn try_cbm2199(dev: &AtaDevice) -> Result<(FlashIdResult, &'static str), String> {
+    let result = controllers::usb::read_flash_id(dev, "cbm2199")?;
+    Ok((result, "ChipsBank CBM2199"))
+}
+
+fn try_fc3379(dev: &AtaDevice) -> Result<(FlashIdResult, &'static str), String> {
+    let result = controllers::usb::read_flash_id(dev, "fc3379")?;
+    Ok((result, "FirstChip FC3379"))
+}
+
+fn try_fc2279(dev: &AtaDevice) -> Result<(FlashIdResult, &'static str), String> {
+    let result = controllers::usb::read_flash_id(dev, "fc2279")?;
+    Ok((result, "FirstChip FC2279"))
+}
+
+fn try_au8910x(dev: &AtaDevice) -> Result<(FlashIdResult, &'static str), String> {
+    let result = controllers::usb::read_flash_id(dev, "au8910x")?;
+    Ok((result, "Alcor AU8910x"))
+}
+
+fn try_au6989(dev: &AtaDevice) -> Result<(FlashIdResult, &'static str), String> {
+    let result = controllers::usb::read_flash_id(dev, "au6989")?;
+    Ok((result, "Alcor AU6989"))
 }
 
 fn main() {
