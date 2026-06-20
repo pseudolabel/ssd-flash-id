@@ -1,7 +1,7 @@
 # ssd-flash-id
 
 Linux open-source equivalent of [VLO's SSD Flash ID tools](http://vlo.name:3000/ssdtool/).
-Identifies NAND flash chips on NVMe and SATA SSDs via vendor-specific commands,
+Identifies NAND flash chips on NVMe, SATA SSDs, and supported flash drives via vendor-specific commands,
 reporting flash type (QLC/TLC/MLC/SLC), manufacturer, and technology node
 for each NAND bank on the drive.
 
@@ -54,6 +54,14 @@ sudo ./target/release/ssd-flash-id
 | Yeestor/SiliconGo | YS9082, YS9085 |
 | Realtek | RTS5732, RTS5733, RTS5735 |
 
+### Flash Drives / Raw SCSI
+
+| Family | Controllers |
+|--------|------------|
+| ChipsBank | CBM2199 |
+| FirstChip | FC2279, FC3379 |
+| Alcor | AU8910x, AU6989 |
+
 ## NAND Identification
 
 Recognizes flash from Micron, Intel, Spectek, Samsung, SK Hynix, Toshiba/Kioxia,
@@ -69,17 +77,18 @@ options:
     -l, --list          list NVMe and SATA devices
     -c, --controller    force controller type:
                         nvme: smi, rtl, phison, maxio, marvell, innogrit, tenafe
-                        sata: jm, smi-sata, yeestor, sandforce, rtl-sata
+                        sata/block: jm, smi-sata, yeestor, sandforce, rtl-sata,
+                        usb:  cbm2199, fc3379, fc2279, au8910x, au6989
     --rtl-variant       force Realtek NVMe variant: v1 or v2
     --raw               dump raw flash ID bytes without decoding
 ```
 
-Auto-detects the controller type. NVMe devices are found automatically; SATA
+Auto-detects the controller type. NVMe devices are found automatically; block
 devices require an explicit path (e.g. `ssd-flash-id /dev/sda`).
 
 ## Requirements
 
-- Linux (uses NVMe ioctl and ATA PASS-THROUGH via SG_IO directly, no external dependencies)
+- Linux (uses NVMe ioctl, ATA PASS-THROUGH, and raw SCSI via SG_IO directly, no external dependencies)
 - Root privileges (`sudo`)
 
 ## Credits

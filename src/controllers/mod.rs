@@ -10,6 +10,7 @@ pub mod sandforce;
 pub mod smi;
 pub mod smi_sata;
 pub mod tenafe;
+pub mod usb;
 pub mod yeestor;
 
 #[derive(Clone)]
