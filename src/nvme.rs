@@ -161,7 +161,7 @@ impl NvmeDevice {
     }
 
     fn submit_admin_cmd(&self, cmd: &mut NvmeAdminCmd) -> Result<u32, String> {
-        let ret = unsafe { libc::ioctl(self.fd, NVME_IOCTL_ADMIN_CMD, cmd as *mut NvmeAdminCmd) };
+        let ret = unsafe { libc::ioctl(self.fd, NVME_IOCTL_ADMIN_CMD as libc::Ioctl, cmd as *mut NvmeAdminCmd) };
         if ret < 0 {
             let errno = unsafe { *libc::__errno_location() };
             return Err(format!(

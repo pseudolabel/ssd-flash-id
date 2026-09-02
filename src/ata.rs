@@ -291,7 +291,7 @@ impl AtaDevice {
         hdr.sbp = sense.as_mut_ptr();
         hdr.timeout = TIMEOUT_MS;
 
-        let ret = unsafe { libc::ioctl(self.fd, SG_IO, &mut hdr as *mut SgIoHdr) };
+        let ret = unsafe { libc::ioctl(self.fd, SG_IO as libc::Ioctl, &mut hdr as *mut SgIoHdr) };
         if ret < 0 {
             let errno = unsafe { *libc::__errno_location() };
             return Err(format!(

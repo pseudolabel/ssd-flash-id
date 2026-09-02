@@ -23,6 +23,15 @@ Bank03: 0x89,0xd3,0xac,0x32,0xc6,0x00,0x00,0x00 - Intel 144L(N38A) QLC
 cargo install ssd-flash-id
 ```
 
+Or grab a prebuilt static binary from the
+[releases page](https://github.com/hurelhuyag/ssd-flash-id/releases)
+(`x86_64` and `aarch64`, statically linked against musl):
+
+```
+tar -xzf ssd-flash-id-<version>-x86_64-unknown-linux-musl.tar.gz
+sudo install -m755 ssd-flash-id-<version>-x86_64-unknown-linux-musl/ssd-flash-id /usr/local/bin/
+```
+
 Or build from source:
 
 ```
